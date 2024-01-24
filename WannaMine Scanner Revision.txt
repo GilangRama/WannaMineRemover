@@ -1,0 +1,152 @@
+# WannaMine Scanner
+# RUNSCRIPT version
+$global:logger = @();
+# WannaMine Removal
+$global:removal = @();
+$global:removal2 = @();
+$global:removal3 = @();
+$global:removal4 = @();
+$global:removal5 = @();
+$global:removal6 = @();
+#dictionary list of WannaMine keywords
+$string1 = "Windows","Microsoft","Network","Remote","Function","Secure","Application";
+$string2 = "Update","Time","NetBIOS","RPC","Protocol","SSDP","UPnP";
+$string3 = "Service","Host","Client","Event","Manager","Helper","System";
+$servicename = @();
+#sting list combinations
+Foreach ($x in $string1) {
+foreach ($y in $string2) {
+foreach ($z in $string3) {
+$servicename += ($x+$y+$z)
+}
+}
+}
+#hash function
+function sha256 {param ([parameter(Mandatory=$true)] [ValidateNotNullOrEmpty()]$filename);
+try {
+$sha256object = New-Object System.Security.Cryptography.SHA256CryptoServiceProvider;
+$hash = [System.BitConverter]::ToString(
+$sha256object.ComputeHash([System.IO.File]::ReadAllBytes($filename)));
+$hash -replace '-'
+}
+catch{
+echo 'gathering hash failed'
+}
+};
+#file/dll timestamps
+function fileinfo {param ([parameter(Mandatory=$true)] [ValidateNotNullOrEmpty()]$fileinfo);
+try {
+$timestamp = (Get-ItemProperty -path $fileinfo).CreationTimeUtc;
+$global:logger += 'Creation Time (UTC) $timestamp';
+}
+
+catch{
+echo 'gathering fileinfo failed'
+}
+};
+#services hunt
+foreach ($s in $servicename){
+if (test-path 'C:\Windows\System32\$s.dll')
+{
+echo '[WANNAMINE V4.0 ARTIFACTS FOUND]';
+echo '[+] FILE FOUND! C:\Windows\System32\$s.dll';
+sha256 'C:\Windows\System32\$s.dll';
+fileinfo 'C:\Windows\System32\$s.dll';
+$service = get-service | ?{$_.Name -match $s} | select -exp Name;
+if($service){
+echo '[+] SERVICE FOUND!: $s'
+echo ''
+$global:removal6 += '[+] Stop Service: pwsh Get-service $s | stop-service'
+$global:removal6 += ''
+$global:removal6 += "[+] Remove Service: pwsh Get-WmiObject win32_service | ?{$_.name -match '$s'} | remove-wmiobject"
+}
+else {
+echo '[-] NO SERVICE'
+}
+}
+if (test-path 'C:\Windows\SysWOW64\$s.dll')
+{
+echo '[WANNAMINE V4.0 ARTIFACTS FOUND]';
+echo '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~';
+echo '[+] FILE FOUND! C:\Windows\SysWOW64\$s.dll';
+sha256 C:\Windows\SysWOW64\$s.dll;
+echo ''
+fileinfo C:\Windows\SysWOW64\$s.dll;
+$service = get-service | ?{$_.Name -match $s} | select -exp Name;
+if($service){
+echo '[+] SERVICE FOUND!: $s'
+echo '';
+$global:removal6 += '[+] Stop Service: pwsh Get-service $s | stop-service'
+$global:removal6 += ''
+$global:removal6 += "[+] Remove Service: pwsh Get-WmiObject win32_service | ?{$_.name -match '$s'} | remove-wmiobject"
+}
+else {
+echo '[-] NO SERVICE'
+}
+}
+};
+#process hunt
+$WannaProcess = get-process |? {$_.Name -ne 'lsass' -and $_.Name -match 'dllhostex'};
+if ($WannaProcess -ne $null){
+foreach ($Proc in $WannaProcess){
+$ProcName = ($Proc.Name)
+$ProcID = ($Proc).Id
+$global:logger += "[+] PROCESS FOUND!:'$ProcName' PID: $ProcID";
+$global:logger += '';
+$global:removal += "[+] Process Kill: 'pwsh get-process | ?{$_.name -eq '$ProcName'} | Stop-Process-Force'";
+}
+} else {
+$global:logger += '[-] NO PROCESS';
+}
+#file hunt
+$artefacts = @()
+if (test-path C:\Windows\NetworkDistribution\) {
+$artefacts += (gci -path C:\Windows\NetworkDistribution\ | select -exp FullName);
+$global:removal2 += "[+] Remove Folder: 'rm C:\Windows\NetworkDistribution -force'";
+}
+else {
+$global:logger += '[-] No NetworkDistribution Found';
+}
+#check for XMRig miner
+if(test-path 'C:\Windows\System32\dllhostex.exe'){
+$artefacts += 'C:\Windows\System32\dllhostex.exe';
+$global:removal3 += "[+] Remove File: 'rm C:\Windows\System32\dllhostex.exe'"
+}
+if(test-path 'C:\Windows\SysWOW64\dllhostex.exe'){
+$artefacts += 'C:\Windows\SysWOW64\dllhostex.exe';
+$global:removal3 += "[+] Remove File: 'rm C:\Windows\SysWOW64\dllhostex.exe'"
+}
+#check for encrypted SHADOWBROKERS payload
+$encpayload = gci -path C:\Windows\sys*\ -include *rdphxf.xsl,*rdpnoq.log,*rdpufl.dat,*rdpjxp.tlb,*rdpciu.msc,*rdppap.log,*rdpucv.ini -recurse -force -ea 0; 
+if ($encpayload){
+foreach ($payloadfile in $encpayload){
+$artefacts += "[+] ENCRYPTED PAYLOAD FOUND!: '$payloadfile'"
+$global:removal4 += "Remove File: 'rm C:\Windows\System32\$payloadfile'";
+}
+}
+foreach ($a in $artefacts) {
+$global:logger += '[+] FILE/S FOUND!: $a';
+$global:logger += sha256 $a;
+$global:logger += ''
+}
+#registry hunt
+if(Test-Path -Path 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkPlatform\LocationAwareness'){
+$global:logger += "[+] REGISTRY KEY FOUND!: 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkPlatform\LocationAwareness'";
+$global:removal5 += "[+] Remove Registry Key: 'reg delete 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkPlatform' /v 'Location Awareness' /f'";
+}
+#Logger
+$logger
+echo '';
+echo '[REMOVAL COMMANDS]';
+echo '~~~~~~~~~~~~~~~~~~';
+$removal6;
+echo '';
+$removal;
+echo '';
+$removal2;
+echo '';
+$removal3;
+echo '';
+$removal4;
+echo '';
+$removal5;
